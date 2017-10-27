@@ -5,6 +5,8 @@ import tkinter as tk
 from tkinter import filedialog
 from tkinter.scrolledtext import ScrolledText
 
+import threading
+
 from nltk import word_tokenize
 
 import xlrd
@@ -59,6 +61,9 @@ class Elektra(tk.Frame):
         self.execute_button['command'] = self.execute
         self.execute_button.pack(side=tk.LEFT)
 
+        #self.progress = ttk.Progressbar(self, orient=tk.HORIZONTAL,length=100,  mode='indeterminate')
+        #self.progress.pack(side=tk.LEFT)
+
     def inclusion_criteria_command(self):
         dialog = InclusionCriteriaDialog(self)
         self.master.wait_window(dialog.top)
@@ -73,65 +78,75 @@ class Elektra(tk.Frame):
                 self.treeview.insert('', 'end', text=row[0], values=(row[1],))
 
     def execute(self):
-        criteria_list = list()
+        def _execute():
+            #self.progress.start()
 
-        print('CRITERIA TOKENS:')
+            criteria_list = list()
 
-        i = 0
+            print('CRITERIA TOKENS:')
 
-        for criteria in self.criteria_list:
-            i += 1
-            normalized = normalize(criteria)
-            tokens = word_tokenize(normalized)
-            filtered = remove_stopwords(tokens)
-            stemmed = stemming(filtered)
-            keywords = set(stemmed)
+            i = 0
 
-            criteria_info = {'id': i, 'keywords': keywords, 'size': len(keywords)}
-            criteria_list.append(criteria_info)
+            for criteria in self.criteria_list:
+                i += 1
+                normalized = normalize(criteria)
+                tokens = word_tokenize(normalized)
+                filtered = remove_stopwords(tokens)
+                stemmed = stemming(filtered)
+                keywords = set(stemmed)
 
-            print('CRITERIA_%s:' % criteria_info['id'])
-            print('LEN: (%s)' % criteria_info['size'])
-            print('KEYWORDS: (%s)' % str(criteria_info['keywords']))
+                criteria_info = {'id': i, 'keywords': keywords, 'size': len(keywords)}
+                criteria_list.append(criteria_info)
 
-        print('-------------------------------------------------------')
+                print('CRITERIA_%s:' % criteria_info['id'])
+                print('LEN: (%s)' % criteria_info['size'])
+                print('KEYWORDS: (%s)' % str(criteria_info['keywords']))
 
-        i = 0
-        current_progress = 0
-        total_items_to_process = len(self.dataset) * len(criteria_list)
-        results = list()
-        for paper in self.dataset:
-            i += 1
-            abstract = normalize(paper[1])
-            abs_tokens = word_tokenize(abstract)
-            abs_filtered = remove_stopwords(abs_tokens)
-            abs_stemmed = stemming(abs_filtered)
-            document = set(abs_stemmed)
+            print('-------------------------------------------------------')
 
-            title = ' '.join(paper[0].split())
-            result_row = [i, title,]
+            i = 0
+            current_progress = 0
+            total_items_to_process = len(self.dataset) * len(criteria_list)
+            results = list()
+            for paper in self.dataset:
+                i += 1
+                abstract = normalize(paper[1])
+                abs_tokens = word_tokenize(abstract)
+                abs_filtered = remove_stopwords(abs_tokens)
+                abs_stemmed = stemming(abs_filtered)
+                document = set(abs_stemmed)
 
-            sum_match_percentage = 0
+                title = ' '.join(paper[0].split())
+                result_row = [i, title,]
 
-            for criteria in criteria_list:
-                current_progress += 1
+                sum_match_percentage = 0
 
-                matches = criteria['size'] - len(criteria['keywords'].difference(document))
-                match_percentage = matches / float(criteria['size'])
-                sum_match_percentage += match_percentage
+                for criteria in criteria_list:
+                    current_progress += 1
 
-                result_row.append(matches)
-                result_row.append(match_percentage)
+                    matches = criteria['size'] - len(criteria['keywords'].difference(document))
+                    match_percentage = matches / float(criteria['size'])
+                    sum_match_percentage += match_percentage
 
-                percent = (float(current_progress) / float(total_items_to_process)) * 100.0
-                self.execute_button['text'] = 'Execute ({}%)'.format(percent)
+                    result_row.append(matches)
+                    result_row.append(match_percentage)
 
-            result_row.append(sum_match_percentage / len(criteria_list))
-            results.append(result_row)
+                    percent = (float(current_progress) / float(total_items_to_process)) * 100.0
+                    percent = round(percent, 2)
+                    #self.progress['value'] = percent
+                    self.execute_button['text'] = 'Execute ({}%)'.format(percent)
 
-        write_output(results, criteria_list)
-        opener = 'open' if sys.platform == 'darwin' else 'xdg-open'
-        subprocess.call([opener, 'output.xls'])
+                result_row.append(sum_match_percentage / len(criteria_list))
+                results.append(result_row)
+
+            write_output(results, criteria_list)
+            opener = 'open' if sys.platform == 'darwin' else 'xdg-open'
+            subprocess.call([opener, 'output.xls'])
+            self.execute_button['state'] = 'normal'
+            #self.progress.stop()
+
+        self.execute_button['state'] = 'disabled'
+        threading.Thread(target=_execute).start()
 
 
 def create_table(parent):
